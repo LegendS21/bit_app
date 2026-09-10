@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------ *
+ * Design token — warna brand mengikuti palet mockup (Bootstrap #0d6efd)
+ * ------------------------------------------------------------------ */
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, "Segoe UI",
+    Roboto, sans-serif;
+
+  --color-brand-50: #eff5ff;
+  --color-brand-100: #dbe8fe;
+  --color-brand-200: #bfd8fe;
+  --color-brand-300: #93bcfd;
+  --color-brand-400: #6098fa;
+  --color-brand-500: #0d6efd;
+  --color-brand-600: #0a58ca;
+  --color-brand-700: #0b47a1;
+  --color-brand-800: #0f3c85;
+  --color-brand-900: #12356e;
+  --color-brand-950: #0c2350;
+
+  --color-ink-500: #64748b;
+  --color-ink-700: #334155;
+  --color-ink-900: #0f172a;
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink-700);
+  background-color: #f5f7fb;
+}
+
+/* Scrollbar tipis supaya panel data padat tetap rapi */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+@layer components {
+  /* ---------------- Tombol ---------------- */
+  .btn {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg
+      border border-transparent px-4 py-2.5 text-sm font-semibold whitespace-nowrap
+      transition select-none
+      focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:outline-none
+      disabled:cursor-not-allowed disabled:opacity-55;
+  }
+  .btn-sm {
+    @apply gap-1.5 px-3 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply gap-2.5 px-6 py-3 text-base;
+  }
+  .btn-primary {
+    @apply bg-brand-600 text-white shadow-sm shadow-brand-600/25
+      hover:bg-brand-700 active:bg-brand-800;
+  }
+  .btn-outline {
+    @apply border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:text-brand-700;
+  }
+  .btn-outline-brand {
+    @apply border-brand-300 bg-white text-brand-700 hover:bg-brand-50;
+  }
+  .btn-ghost {
+    @apply text-slate-600 hover:bg-slate-100 hover:text-slate-900;
+  }
+  .btn-success {
+    @apply bg-emerald-600 text-white shadow-sm shadow-emerald-600/25 hover:bg-emerald-700;
+  }
+  .btn-warning {
+    @apply bg-amber-400 text-amber-950 shadow-sm hover:bg-amber-300;
+  }
+  .btn-danger {
+    @apply bg-rose-600 text-white shadow-sm shadow-rose-600/25 hover:bg-rose-700;
+  }
+  .btn-white {
+    @apply bg-white text-brand-700 shadow-sm hover:bg-brand-50;
+  }
+  .btn-icon {
+    @apply h-8 w-8 rounded-md p-0;
+  }
+
+  /* ---------------- Kartu ---------------- */
+  .card {
+    @apply rounded-xl border border-slate-200/80 bg-white shadow-sm shadow-slate-200/50;
+  }
+  .card-head {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 px-5 py-4;
+  }
+  .card-title {
+    @apply flex items-center gap-2 text-sm font-bold text-slate-800;
+  }
+  .card-body {
+    @apply p-5;
+  }
+
+  /* ---------------- Form ---------------- */
+  .label {
+    @apply mb-1.5 block text-sm font-semibold text-slate-700;
+  }
+  .hint {
+    @apply mt-1.5 text-xs text-slate-500;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm
+      text-slate-800 transition placeholder:text-slate-400
+      focus:border-brand-500 focus:ring-4 focus:ring-brand-500/12 focus:outline-none
+      disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500;
+  }
+  .input-file {
+    @apply file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-brand-50
+      file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-brand-700
+      hover:file:bg-brand-100 py-2;
+  }
+
+  /* ---------------- Badge ---------------- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  /* ---------------- Tabel ---------------- */
+  .table-wrap {
+    @apply overflow-x-auto;
+  }
+  .tbl {
+    @apply w-full min-w-[720px] border-collapse text-sm;
+  }
+  .tbl thead th {
+    @apply border-b border-slate-200 bg-slate-50/80 px-4 py-3 text-left text-xs
+      font-bold tracking-wide text-slate-500 uppercase;
+  }
+  .tbl tbody td {
+    @apply border-b border-slate-100 px-4 py-3.5 align-middle text-slate-700;
+  }
+  .tbl tbody tr:hover {
+    @apply bg-brand-50/40;
+  }
+  .tbl tbody tr:last-child td {
+    @apply border-b-0;
+  }
+}
