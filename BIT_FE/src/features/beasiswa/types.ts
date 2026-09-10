@@ -27,6 +27,40 @@ export type Beasiswa = {
   updated_at: string;
 };
 
+/**
+ * Bentuk data katalog publik (`GET /beasiswa/publik`) — dipakai landing page
+ * yang dibuka tanpa login.
+ *
+ * Sengaja lebih sempit daripada `Beasiswa`: tidak ada `status` (yang tampil
+ * pasti AKTIF), dan tidak ada `created_by`/`created_at`/`updated_at` karena
+ * itu data internal yang tidak perlu bocor ke pengunjung.
+ */
+export type SyaratPublik = {
+  kode: string;
+  nama: string;
+  deskripsi: string | null;
+  is_wajib: boolean;
+};
+
+export type BeasiswaPublik = {
+  id: number;
+  kode: string;
+  nama: string;
+  deskripsi: string | null;
+  penyelenggara: string | null;
+  kuota: number;
+  /** Format YYYY-MM-DD. */
+  tgl_buka: string;
+  tgl_tutup: string;
+  persyaratan: SyaratPublik[];
+};
+
+export type MetaKatalog = {
+  total: number;
+  /** Jumlah kuota seluruh program aktif, untuk statistik di hero. */
+  total_kuota: number;
+};
+
 export type FilterBeasiswa = {
   q?: string;
   status?: StatusBeasiswa | "";

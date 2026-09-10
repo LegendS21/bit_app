@@ -7,9 +7,25 @@ const {
   clearRefreshCookie,
   ambilRefreshToken
 } = require('../helpers/refreshToken.js');
-const { loginSchema, validasi } = require('../validators/authValidator.js');
+const { loginSchema, registerSchema, validasi } = require('../validators/authValidator.js');
 
 class AuthController {
+  static async register(req, res, next) {
+    try {
+      const data = validasi(registerSchema, req.body);
+      const akun = await AuthService.register(data, ambilMeta(req));
+
+      // 201 + profil saja. Tidak ada token dan tidak ada cookie: pendaftaran
+      // bukan login, pengguna diarahkan ke halaman login setelah ini.
+      res.status(201).json({
+        message: 'Pendaftaran berhasil. Silakan login dengan email dan password Anda.',
+        data: akun
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   static async login(req, res, next) {
     try {
       const kredensial = validasi(loginSchema, req.body);

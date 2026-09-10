@@ -29,6 +29,22 @@ const loginLimiter = rateLimit({
   handler: balasanLimit('Terlalu banyak percobaan login. Coba lagi dalam 15 menit.', 'LOGIN_RATE_LIMITED')
 });
 
+/**
+ * Pendaftaran dibatasi ketat: endpoint publik yang menulis ke database adalah
+ * sasaran empuk pembuatan akun massal. Satu IP wajar butuh sekali-dua kali,
+ * bukan puluhan.
+ */
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.RATE_LIMIT_REGISTER || 5),
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  handler: balasanLimit(
+    'Terlalu banyak pendaftaran dari jaringan ini. Coba lagi satu jam lagi.',
+    'REGISTER_RATE_LIMITED'
+  )
+});
+
 /** Refresh dipanggil rutin tiap ~15 menit, jadi batasnya lebih longgar. */
 const refreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -38,4 +54,4 @@ const refreshLimiter = rateLimit({
   handler: balasanLimit('Terlalu banyak permintaan refresh token', 'RATE_LIMITED')
 });
 
-module.exports = { globalLimiter, loginLimiter, refreshLimiter };
+module.exports = { globalLimiter, loginLimiter, registerLimiter, refreshLimiter };

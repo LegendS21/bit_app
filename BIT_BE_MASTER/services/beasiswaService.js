@@ -1,7 +1,7 @@
 'use strict';
 
 const { Op } = require('sequelize');
-const { sequelize, beasiswa } = require('../models');
+const { sequelize, beasiswa, persyaratan, beasiswa_persyaratan } = require('../models');
 const { badRequest, notFound } = require('../helpers/errors.js');
 const { nomorBerikutnya, rakitKode } = require('../helpers/nomorUrut.js');
 
@@ -53,7 +53,99 @@ async function ambilBeasiswa(id) {
   return baris;
 }
 
+/**
+ * Bentuk data untuk katalog publik — **sengaja lebih sempit** daripada
+ * `bentukBeasiswa`. Halaman ini dibuka tanpa login, jadi `created_by`
+ * (id user internal), `created_at`, dan `updated_at` tidak ikut keluar.
+ */
+function bentukPublik(baris) {
+  const syarat = (baris.syarat || [])
+    .filter((s) => s.persyaratan)
+    .sort((a, b) => a.urutan - b.urutan)
+    .map((s) => ({
+      kode: s.persyaratan.kode,
+      nama: s.persyaratan.nama,
+      deskripsi: s.persyaratan.deskripsi,
+      is_wajib: s.is_wajib
+    }));
+
+  return {
+    id: baris.id,
+    kode: baris.kode,
+    nama: baris.nama,
+    deskripsi: baris.deskripsi,
+    penyelenggara: baris.penyelenggara,
+    kuota: baris.kuota,
+    tgl_buka: baris.tgl_buka,
+    tgl_tutup: baris.tgl_tutup,
+    persyaratan: syarat
+  };
+}
+
 class BeasiswaService {
+  /**
+   * GET /beasiswa/publik — katalog terbuka untuk landing page.
+   *
+   * Satu-satunya endpoint Master yang boleh diakses tanpa token, karena
+   * halaman depan memang dibuka orang yang belum punya akun.
+   *
+   * Yang tampil hanya program yang **benar-benar sedang membuka pendaftaran**:
+   * status `AKTIF` DAN tanggal tutupnya belum lewat. Tanpa syarat tanggal,
+   * program yang lupa ditutup admin akan terus tampil di bagian yang
+   * judulnya "sedang membuka pendaftaran".
+   *
+   * Persyaratan ikut disertakan supaya kartu dan dialog detail di landing
+   * tidak perlu memanggil endpoint kedua.
+   */
+  static async katalogPublik() {
+    // DATEONLY dibandingkan sebagai 'YYYY-MM-DD', jadi patokannya tanggal
+    // lokal server — bukan UTC, yang bisa meleset sehari di zona WIB.
+    const kini = new Date();
+    const hariIni = [
+      kini.getFullYear(),
+      String(kini.getMonth() + 1).padStart(2, '0'),
+      String(kini.getDate()).padStart(2, '0')
+    ].join('-');
+
+    const rows = await beasiswa.findAll({
+      where: {
+        status: 'AKTIF',
+        tgl_tutup: { [Op.gte]: hariIni }
+      },
+      include: [
+        {
+          model: beasiswa_persyaratan,
+          as: 'syarat',
+          attributes: ['is_wajib', 'urutan'],
+          required: false,
+          include: [
+            {
+              model: persyaratan,
+              as: 'persyaratan',
+              attributes: ['kode', 'nama', 'deskripsi'],
+              // Persyaratan yang sudah dinonaktifkan tidak diumumkan lagi.
+              where: { is_active: true },
+              required: true
+            }
+          ]
+        }
+      ],
+      // Yang paling dekat tenggatnya tampil lebih dulu.
+      order: [['tgl_tutup', 'ASC'], ['id', 'DESC']]
+    });
+
+    const data = rows.map(bentukPublik);
+
+    return {
+      data,
+      meta: {
+        total: data.length,
+        // Dipakai bagian statistik di hero landing.
+        total_kuota: data.reduce((n, b) => n + (b.kuota || 0), 0)
+      }
+    };
+  }
+
   /** GET /beasiswa */
   static async daftar(filter, user) {
     const where = {};

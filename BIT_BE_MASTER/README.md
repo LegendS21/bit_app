@@ -54,6 +54,7 @@ miliknya.
 | Method | Path | Auth | Keterangan |
 |---|---|---|---|
 | GET | `/health` | — | status service |
+| GET | `/beasiswa/publik` | **—** | katalog terbuka untuk landing page |
 | GET | `/beasiswa` | Bearer | daftar program (cari, filter status, halaman) |
 | GET | `/beasiswa/:id` | Bearer | detail program |
 | POST | `/beasiswa` | Bearer **ADMIN** | tambah program |
@@ -67,6 +68,50 @@ miliknya.
 | GET | `/beasiswa/:id/persyaratan` | Bearer | syarat yang berlaku untuk satu program |
 | PUT | `/beasiswa/:id/persyaratan` | Bearer **ADMIN** | ganti seluruh daftar syarat program |
 | DELETE | `/beasiswa/:id/persyaratan/:persyaratanId` | Bearer **ADMIN** | lepas satu syarat |
+
+### GET /beasiswa/publik
+
+**Satu-satunya endpoint service ini yang jalan tanpa token**, dipakai landing
+page yang dibuka pengunjung sebelum punya akun.
+
+Yang tampil hanya program yang benar-benar sedang membuka pendaftaran:
+status `AKTIF` **dan** `tgl_tutup` belum lewat. Tanpa syarat tanggal itu,
+program yang lupa ditutup admin akan terus muncul di bagian yang judulnya
+"sedang membuka pendaftaran".
+
+```json
+{
+  "data": [
+    {
+      "id": 17,
+      "kode": "BEA-2026-001",
+      "nama": "web developer",
+      "deskripsi": null,
+      "penyelenggara": null,
+      "kuota": 10,
+      "tgl_buka": "2026-09-10",
+      "tgl_tutup": "2026-09-20",
+      "persyaratan": [
+        { "kode": "KTP", "nama": "Kartu Tanda Penduduk", "deskripsi": null, "is_wajib": true }
+      ]
+    }
+  ],
+  "meta": { "total": 1, "total_kuota": 10 }
+}
+```
+
+Yang menjaga endpoint ini:
+
+- Bentuk datanya **lebih sempit** daripada `GET /beasiswa`: `created_by`,
+  `created_at`, dan `updated_at` tidak ikut keluar — itu jejak user internal.
+- Tidak menerima parameter apa pun, jadi tidak ada yang bisa disetel pemanggil.
+- Persyaratan yang sudah dinonaktifkan (`is_active = false`) tidak ikut.
+- Persyaratan disertakan sekalian supaya landing tidak perlu memanggil
+  endpoint kedua untuk dialog detail.
+- Di router, `/publik` **wajib** didaftarkan sebelum `router.use(authentication)`
+  dan sebelum `/:id` — kalau tidak, kata "publik" tertelan sebagai id program.
+
+`meta.total_kuota` dipakai bagian statistik di hero landing.
 
 ### GET /beasiswa
 

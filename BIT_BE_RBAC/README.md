@@ -35,6 +35,7 @@ token yang beredar langsung invalid.
 |---|---|---|---|
 | GET | `/health` | — | status service |
 | GET | `/.well-known/jwks.json` | — | public key RS256 untuk Gateway |
+| POST | `/auth/register` | — | pendaftaran mandiri **calon peserta** |
 | POST | `/auth/login` | — | terbitkan access + refresh token |
 | POST | `/auth/refresh` | cookie | rotasi refresh token |
 | POST | `/auth/logout` | cookie | cabut sesi ini |
@@ -57,6 +58,38 @@ token yang beredar langsung invalid.
 | GET | `/menus/:id` | Bearer **ADMIN** | detail menu |
 | PUT | `/menus/:id` | Bearer **ADMIN** | ubah menu |
 | DELETE | `/menus/:id` | Bearer **ADMIN** | hapus menu |
+
+### POST /auth/register
+
+Pendaftaran mandiri dari halaman `/daftar`. **Hanya menerbitkan akun
+`APPLICANT`.** Akun internal tetap wajib dibuat Admin lewat `POST /users`.
+
+```json
+{
+  "nama": "Budi Santoso",
+  "email": "budi@email.com",
+  "password": "Rahasia123",
+  "konfirmasi_password": "Rahasia123",
+  "no_hp": "081200000000"
+}
+```
+
+Balasan `201` berisi profil saja — **tidak ada token dan tidak ada cookie**.
+Pendaftaran bukan login; pengguna login seperti biasa setelahnya.
+
+Yang menjaga endpoint ini:
+
+- `roles`, `tipe_user`, dan `is_active` **tidak ada di skema**. Skemanya
+  `.strict()`, jadi body yang menyelipkan `"roles": ["ADMIN"]` dibalas 400,
+  bukan diam-diam diabaikan. Role dipaksa konstanta di service.
+- Password wajib ≥ 8 karakter dan memuat huruf kecil, huruf besar, dan angka —
+  lebih ketat daripada `POST /users`, karena dibuat sendiri oleh pendaftar.
+- `konfirmasi_password` harus sama.
+- Rate limit 5 pendaftaran per jam per IP (`RATE_LIMIT_REGISTER`), di RBAC
+  maupun di Gateway.
+- Email ganda dibalas `409 EMAIL_TERDAFTAR`, termasuk kalau pemiliknya sudah
+  di-soft delete (kolomnya tetap UNIQUE).
+- `email_verified_at` dibiarkan `null` — verifikasi email belum ada.
 
 ### POST /auth/login
 

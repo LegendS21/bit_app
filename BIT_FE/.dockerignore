@@ -1,0 +1,17 @@
+# node_modules dan hasil build dari host tidak ikut — image membangun
+# ulang sendiri supaya hasilnya konsisten, tidak tergantung isi laptop.
+node_modules
+dist
+npm-debug.log*
+
+# VITE_* dipanggang saat build lewat build args di docker-compose,
+# bukan dari file .env milik laptop.
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md

@@ -9,6 +9,23 @@ const {
 } = require('../validators/beasiswaValidator.js');
 
 class BeasiswaController {
+  /**
+   * GET /beasiswa/publik — katalog terbuka untuk landing page.
+   * Tanpa token dan tanpa parameter apa pun: tidak ada yang bisa disetel
+   * pemanggil, jadi tidak ada yang perlu divalidasi.
+   */
+  static async katalogPublik(req, res, next) {
+    try {
+      const hasil = await BeasiswaService.katalogPublik();
+      // Boleh di-cache sebentar: isinya sama untuk semua pengunjung dan
+      // hanya berubah kalau admin mengubah data program.
+      res.set('Cache-Control', 'public, max-age=60');
+      res.status(200).json(hasil);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /** GET /beasiswa */
   static async daftar(req, res, next) {
     try {

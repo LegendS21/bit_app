@@ -1,0 +1,352 @@
+# ------------------------------------------------------------------
+# Seluruh sistem BIT dalam 9 container.
+#
+#   docker compose up -d --build     nyalakan semua
+#   docker compose ps                lihat status & health
+#   docker compose logs -f gateway   pantau log satu service
+#   docker compose down              matikan (DATA TETAP AMAN di volume)
+#   docker compose down -v           matikan DAN hapus seluruh data
+#
+# Aplikasi dibuka di http://localhost:8080 - SATU-SATUNYA pintu masuk.
+#
+# Nilai rahasia dibaca dari file `.env` di folder ini. Tanda `:?` berarti
+# compose menolak jalan kalau variabelnya belum diisi - lebih baik gagal
+# terang-terangan daripada diam-diam memakai password kosong.
+# ------------------------------------------------------------------
+
+name: bit
+
+# ------------------------------------------------------------------
+# Dua jaringan, sesuai ketentuan arsitektur: "Semua microservice
+# disembunyikan di dalam jaringan privat. Hanya API Gateway yang bisa
+# diakses publik."
+#
+# `dalam` bertanda internal: true - container di dalamnya tidak punya jalan
+# keluar ke internet dan tidak bisa dihubungi dari luar sama sekali.
+# Keempat service, kedua database, dan frontend hanya menempel di sini.
+#
+# Hanya `gateway` yang menempel di `tepi` DAN menerbitkan port ke host.
+# ------------------------------------------------------------------
+networks:
+  tepi:
+    driver: bridge
+  dalam:
+    driver: bridge
+    internal: true
+
+# ------------------------------------------------------------------
+# Persistent storage. Tanpa ini, isi database dan seluruh berkas unggahan
+# peserta lenyap setiap kali container di-restart atau di-redeploy.
+# ------------------------------------------------------------------
+volumes:
+  # Tiga nama pertama sengaja sama persis dengan tabel di DOCKER.md bagian 2.
+  mysql_data:
+  postgres_data:
+  # Berkas persyaratan peserta. Ini yang paling tidak boleh hilang.
+  storage_dokumen:
+  clamav_data:
+  # Pasangan kunci RS256 milik RBAC. Kalau hilang, seluruh token yang sedang
+  # beredar mendadak tidak valid dan semua pengguna ter-logout paksa.
+  rbac_keys:
+
+services:
+  # ================================================================
+  # 1. API GATEWAY - satu-satunya container yang terbuka ke luar
+  # ================================================================
+  gateway:
+    build:
+      context: ./BIT_BE_GATEWAY
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TRUST_PROXY: 1
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+      # Alamat internal; tidak satu pun bisa dicapai dari luar Docker.
+      RBAC_URL: http://rbac:3001
+      MASTER_URL: http://master:3002
+      TRANSAKSI_URL: http://transaksi:3003
+      DOKUMEN_URL: http://dokumen:3004
+      # Request yang bukan /api diteruskan ke nginx yang menyajikan React.
+      FRONTEND_URL: http://frontend:80
+
+      RBAC_JWKS_URL: http://rbac:3001/.well-known/jwks.json
+      JWT_ISSUER: bit-be-rbac
+      JWT_AUDIENCE: bit-beasiswa
+      JWKS_CACHE_DETIK: 600
+
+      RATE_LIMIT_PER_MENIT: ${RATE_LIMIT_PER_MENIT:-100}
+      RATE_LIMIT_LOGIN: 5
+      RATE_LIMIT_REFRESH: 30
+    ports:
+      - "${PORT_GATEWAY:-8080}:3000"
+    networks:
+      - tepi
+      - dalam
+    depends_on:
+      - rbac
+      - master
+      - transaksi
+      - dokumen
+      - frontend
+
+  # ================================================================
+  # 2. MySQL - dipakai RBAC, Master, Transaksi
+  # ================================================================
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?isi MYSQL_ROOT_PASSWORD di file .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # Skrip pembuat 3 database; dijalankan sekali saat volume masih kosong.
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - dalam
+    healthcheck:
+      # Service backend menunggu healthcheck ini hijau sebelum start, supaya
+      # tidak ada yang mencoba migrasi ke database yang belum siap.
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ================================================================
+  # 3. PostgreSQL - dipakai service Dokumen
+  # ================================================================
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di file .env}
+      POSTGRES_DB: db_dokumen
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - dalam
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d db_dokumen"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ================================================================
+  # 4. ClamAV - pemindai virus untuk berkas unggahan
+  #
+  # SATU-SATUNYA pengecualian jaringan: ikut menempel di `tepi` karena
+  # freshclam perlu mengunduh basis data signature dari internet. Ia tidak
+  # menerbitkan port apa pun, jadi tetap tidak bisa dihubungi dari luar -
+  # hanya arah keluar yang terbuka.
+  #
+  # CATATAN: saat pertama dinyalakan, container ini mengunduh ~250 MB dan
+  # baru sehat setelah 3-5 menit. Selama itu service Dokumen memang
+  # sengaja menunggu.
+  # ================================================================
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      # Signature disimpan supaya tidak diunduh ulang setiap restart.
+      - clamav_data:/var/lib/clamav
+    networks:
+      - tepi
+      - dalam
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  # ================================================================
+  # 5. RBAC - autentikasi, user, role, menu (internal :3001)
+  # ================================================================
+  rbac:
+    build:
+      context: ./BIT_BE_RBAC
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      TRUST_PROXY: 1
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+      # Nama host database adalah nama service di file ini, bukan 127.0.0.1.
+      # Inilah alasan config.json harus diganti config.js.
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: db_rbac
+
+      JWT_ISSUER: bit-be-rbac
+      JWT_AUDIENCE: bit-beasiswa
+      JWT_PRIVATE_KEY_PATH: /app/keys/jwt-private.pem
+      JWT_PUBLIC_KEY_PATH: /app/keys/jwt-public.pem
+      ACCESS_TOKEN_TTL_DETIK: 900
+
+      REFRESH_TOKEN_TTL_HARI: 7
+      REFRESH_COOKIE_NAME: refresh_token
+      REFRESH_COOKIE_PATH: /
+      REFRESH_GRACE_DETIK: 10
+      # Masih false karena diakses lewat http://localhost. WAJIB true begitu
+      # sistem dipasang di domain ber-HTTPS.
+      COOKIE_SECURE: "false"
+
+      RATE_LIMIT_PER_MENIT: 100
+      RATE_LIMIT_LOGIN: 5
+      RATE_LIMIT_REFRESH: 30
+      MAX_GAGAL_LOGIN: 5
+      LAMA_KUNCI_MENIT: 15
+
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@bit.test}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+      SEED_VERIFIKATOR_EMAIL: ${SEED_VERIFIKATOR_EMAIL:-verifikator@bit.test}
+      SEED_VERIFIKATOR_PASSWORD: ${SEED_VERIFIKATOR_PASSWORD:-}
+      SEED_SELEKSI_EMAIL: ${SEED_SELEKSI_EMAIL:-seleksi@bit.test}
+      SEED_SELEKSI_PASSWORD: ${SEED_SELEKSI_PASSWORD:-}
+      SEED_APPLICANT_EMAIL: ${SEED_APPLICANT_EMAIL:-peserta@bit.test}
+      SEED_APPLICANT_PASSWORD: ${SEED_APPLICANT_PASSWORD:-}
+    volumes:
+      - rbac_keys:/app/keys
+    networks:
+      - dalam
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ================================================================
+  # 6. Master - data beasiswa & persyaratan (internal :3002)
+  # ================================================================
+  master:
+    build:
+      context: ./BIT_BE_MASTER
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      TRUST_PROXY: 1
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: db_master
+
+      RBAC_JWKS_URL: http://rbac:3001/.well-known/jwks.json
+      JWT_ISSUER: bit-be-rbac
+      JWT_AUDIENCE: bit-beasiswa
+      JWKS_CACHE_DETIK: 600
+
+      RATE_LIMIT_PER_MENIT: 100
+    networks:
+      - dalam
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ================================================================
+  # 7. Transaksi - permohonan, verifikasi, wawancara, hasil (:3003)
+  # ================================================================
+  transaksi:
+    build:
+      context: ./BIT_BE_TRANSAKSI
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      TRUST_PROXY: 1
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: root
+      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      DB_DATABASE: db_transaksi
+
+      RBAC_JWKS_URL: http://rbac:3001/.well-known/jwks.json
+      JWT_ISSUER: bit-be-rbac
+      JWT_AUDIENCE: bit-beasiswa
+      JWKS_CACHE_DETIK: 600
+
+      MASTER_BASE_URL: http://master:3002
+
+      RATE_LIMIT_PER_MENIT: 100
+    networks:
+      - dalam
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # ================================================================
+  # 8. Dokumen - unggah & akses berkas persyaratan (internal :3004)
+  # ================================================================
+  dokumen:
+    build:
+      context: ./BIT_BE_DOKUMEN
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      TRUST_PROXY: 1
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+
+      # Satu-satunya service yang memakai PostgreSQL.
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_DATABASE: db_dokumen
+
+      RBAC_JWKS_URL: http://rbac:3001/.well-known/jwks.json
+      JWT_ISSUER: bit-be-rbac
+      JWT_AUDIENCE: bit-beasiswa
+      JWKS_CACHE_DETIK: 600
+
+      MASTER_BASE_URL: http://master:3002
+      TRANSAKSI_BASE_URL: http://transaksi:3003
+
+      # Menunjuk ke volume, bukan ke folder di dalam image.
+      STORAGE_ROOT: /storage
+      MAX_UPLOAD_MB: 10
+
+      CLAMAV_ENABLED: ${CLAMAV_ENABLED:-true}
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: 3310
+      CLAMAV_TIMEOUT_MS: 30000
+
+      RATE_LIMIT_PER_MENIT: 100
+    volumes:
+      - storage_dokumen:/storage
+    networks:
+      - dalam
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clamav:
+        # Sengaja menunggu ClamAV benar-benar siap. Kalau tidak, berkas yang
+        # masuk di menit-menit awal lolos tanpa dipindai.
+        condition: service_healthy
+
+  # ================================================================
+  # 9. Frontend - React hasil build, disajikan nginx (internal :80)
+  #
+  # Tidak lagi menerbitkan port. Pengguna mencapainya lewat gateway,
+  # sehingga FE dan API berbagi satu origin: tidak ada preflight CORS dan
+  # cookie refresh token tetap first-party.
+  # ================================================================
+  frontend:
+    build:
+      context: ./BIT_FE
+      args:
+        # Relatif, bukan absolut - bundel tidak terikat ke host mana pun.
+        VITE_API_URL: /api
+    restart: unless-stopped
+    networks:
+      - dalam

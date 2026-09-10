@@ -1,26 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Award,
+  Building2,
   CalendarDays,
   ClipboardCheck,
   Clock,
   Contact,
   FileBadge,
   FileCheck2,
-  MapPin,
+  Inbox,
+  Loader2,
   ShieldCheck,
   Users,
   XCircle,
 } from "lucide-react";
+import Alert from "../../components/ui/Alert";
 import Badge from "../../components/ui/Badge";
 import Modal from "../../components/ui/Modal";
-import {
-  ALUR_PENDAFTARAN,
-  PROGRAM,
-  SYARAT_BERKAS,
-  type Program,
-} from "../../data/dummy";
+import { katalogPublik } from "../../features/beasiswa/beasiswaApi";
+import type { BeasiswaPublik } from "../../features/beasiswa/types";
+import { pesanError } from "../../lib/api";
+import { ALUR_PENDAFTARAN, SYARAT_BERKAS } from "../../data/kontenLanding";
 
 const IKON_SYARAT = {
   id: Contact,
@@ -29,8 +30,58 @@ const IKON_SYARAT = {
   letter: FileCheck2,
 } as const;
 
+/** Di bawah ini kartunya ditandai "Segera Ditutup", bukan "Pendaftaran Dibuka". */
+const AMBANG_SEGERA_TUTUP_HARI = 7;
+
+/** `YYYY-MM-DD` → "20 September 2026". */
+function tanggalPanjang(iso: string) {
+  // Ditambah T00:00:00 supaya dibaca sebagai waktu lokal; tanpa itu string
+  // tanggal polos dianggap UTC dan bisa mundur sehari di zona WIB.
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(`${iso}T00:00:00`));
+}
+
+function sisaHari(iso: string) {
+  const tutup = new Date(`${iso}T00:00:00`);
+  const kini = new Date();
+  const hariIni = new Date(kini.getFullYear(), kini.getMonth(), kini.getDate());
+  return Math.round((tutup.getTime() - hariIni.getTime()) / 86_400_000);
+}
+
 export default function Landing() {
-  const [detail, setDetail] = useState<Program | null>(null);
+  const [program, setProgram] = useState<BeasiswaPublik[]>([]);
+  const [totalKuota, setTotalKuota] = useState(0);
+  const [memuat, setMemuat] = useState(true);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState<BeasiswaPublik | null>(null);
+
+  useEffect(() => {
+    let batal = false;
+
+    (async () => {
+      try {
+        const hasil = await katalogPublik();
+        if (batal) return;
+        setProgram(hasil.data);
+        setTotalKuota(hasil.meta.total_kuota);
+      } catch (err) {
+        if (!batal) setError(pesanError(err, "Gagal memuat daftar program pelatihan."));
+      } finally {
+        if (!batal) setMemuat(false);
+      }
+    })();
+
+    // Menghindari setState setelah komponen dilepas kalau pengunjung cepat pindah.
+    return () => {
+      batal = true;
+    };
+  }, []);
+
+  const wajib = detail?.persyaratan.filter((p) => p.is_wajib) ?? [];
+  const opsional = detail?.persyaratan.filter((p) => !p.is_wajib) ?? [];
 
   return (
     <>
@@ -45,7 +96,7 @@ export default function Landing() {
         <div className="relative mx-auto grid max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-12 lg:py-24">
           <div className="lg:col-span-7">
             <span className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1.5 text-xs font-bold tracking-wide backdrop-blur">
-              <Award size={14} /> GELOMBANG PENDAFTARAN 2026 DIBUKA
+              <Award size={14} /> GELOMBANG PENDAFTARAN {new Date().getFullYear()} DIBUKA
             </span>
             <h1 className="mt-5 text-4xl leading-tight font-extrabold tracking-tight sm:text-5xl">
               Tingkatkan Keahlian Anda Bersama{" "}
@@ -68,10 +119,11 @@ export default function Landing() {
               </Link>
             </div>
 
+            {/* Angkanya dihitung dari katalog sungguhan, bukan ditulis tetap. */}
             <dl className="mt-10 grid max-w-lg grid-cols-3 gap-4 border-t border-white/20 pt-6">
               {[
-                ["3", "Program Aktif"],
-                ["225", "Kuota Peserta"],
+                [memuat ? "…" : String(program.length), "Program Aktif"],
+                [memuat ? "…" : String(totalKuota), "Kuota Peserta"],
                 ["100%", "Gratis Biaya"],
               ].map(([v, l]) => (
                 <div key={l}>
@@ -102,63 +154,109 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {PROGRAM.map((p) => (
-              <article
-                key={p.id}
-                className="card flex flex-col transition hover:-translate-y-1 hover:shadow-lg"
-              >
-                <div className="grow p-5">
-                  {p.status === "dibuka" ? (
-                    <Badge tone="success">
-                      <Clock size={12} /> Pendaftaran Dibuka
-                    </Badge>
-                  ) : (
-                    <Badge tone="danger">
-                      <XCircle size={12} /> Segera Ditutup
-                    </Badge>
-                  )}
+          {memuat && (
+            <p className="mt-10 flex items-center justify-center gap-2 text-sm font-medium text-slate-500">
+              <Loader2 size={18} className="animate-spin" /> Memuat program…
+            </p>
+          )}
 
-                  <h3 className="mt-3 text-lg font-bold text-slate-900">
-                    {p.nama}
-                  </h3>
-                  <p className="mt-2 text-sm text-slate-500">{p.deskripsi}</p>
+          {!memuat && error && (
+            <div className="mx-auto mt-10 max-w-2xl">
+              <Alert tone="danger" title="Program tidak dapat ditampilkan">
+                {error}
+              </Alert>
+            </div>
+          )}
 
-                  <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
-                    <li className="flex items-center gap-2">
-                      <CalendarDays size={16} className="text-brand-600" />
-                      <span className="text-slate-500">
-                        <b className="text-slate-700">Batas:</b>{" "}
-                        {p.batasPendaftaran}
-                      </span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <MapPin size={16} className="text-brand-600" />
-                      <span className="text-slate-500">
-                        <b className="text-slate-700">Metode:</b> {p.metode}
-                      </span>
-                    </li>
-                    <li className="flex items-center gap-2">
-                      <Users size={16} className="text-brand-600" />
-                      <span className="text-slate-500">
-                        <b className="text-slate-700">Kuota:</b> {p.kuota}{" "}
-                        Peserta
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-                <div className="p-5 pt-0">
-                  <button
-                    type="button"
-                    onClick={() => setDetail(p)}
-                    className="btn btn-primary w-full"
+          {!memuat && !error && program.length === 0 && (
+            <div className="mx-auto mt-10 max-w-2xl">
+              <div className="card flex flex-col items-center p-10 text-center">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-400">
+                  <Inbox size={26} />
+                </span>
+                <h3 className="mt-4 font-bold text-slate-800">
+                  Belum ada program yang dibuka
+                </h3>
+                <p className="mt-2 text-sm text-slate-500">
+                  Saat ini belum ada gelombang pendaftaran yang aktif. Silakan buat
+                  akun terlebih dahulu supaya Anda siap ketika program dibuka.
+                </p>
+                <Link to="/daftar" className="btn btn-primary mt-6">
+                  <ClipboardCheck size={16} /> Daftar Akun
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {!memuat && !error && program.length > 0 && (
+            <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {program.map((p) => {
+                const sisa = sisaHari(p.tgl_tutup);
+                const segeraTutup = sisa <= AMBANG_SEGERA_TUTUP_HARI;
+
+                return (
+                  <article
+                    key={p.id}
+                    className="card flex flex-col transition hover:-translate-y-1 hover:shadow-lg"
                   >
-                    Lihat Detail &amp; Daftar
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
+                    <div className="grow p-5">
+                      {segeraTutup ? (
+                        <Badge tone="danger">
+                          <XCircle size={12} />
+                          {sisa <= 0 ? "Hari Terakhir" : `Segera Ditutup · ${sisa} hari lagi`}
+                        </Badge>
+                      ) : (
+                        <Badge tone="success">
+                          <Clock size={12} /> Pendaftaran Dibuka
+                        </Badge>
+                      )}
+
+                      <h3 className="mt-3 text-lg font-bold text-slate-900">{p.nama}</h3>
+                      <p className="mt-1 font-mono text-xs text-slate-400">{p.kode}</p>
+
+                      {p.deskripsi && (
+                        <p className="mt-2 text-sm text-slate-500">{p.deskripsi}</p>
+                      )}
+
+                      <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4 text-sm">
+                        <li className="flex items-center gap-2">
+                          <CalendarDays size={16} className="shrink-0 text-brand-600" />
+                          <span className="text-slate-500">
+                            <b className="text-slate-700">Batas:</b>{" "}
+                            {tanggalPanjang(p.tgl_tutup)}
+                          </span>
+                        </li>
+                        {p.penyelenggara && (
+                          <li className="flex items-center gap-2">
+                            <Building2 size={16} className="shrink-0 text-brand-600" />
+                            <span className="text-slate-500">
+                              <b className="text-slate-700">Penyelenggara:</b>{" "}
+                              {p.penyelenggara}
+                            </span>
+                          </li>
+                        )}
+                        <li className="flex items-center gap-2">
+                          <Users size={16} className="shrink-0 text-brand-600" />
+                          <span className="text-slate-500">
+                            <b className="text-slate-700">Kuota:</b> {p.kuota} Peserta
+                          </span>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="p-5 pt-0">
+                      <button
+                        type="button"
+                        onClick={() => setDetail(p)}
+                        className="btn btn-primary w-full"
+                      >
+                        Lihat Detail &amp; Daftar
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
@@ -211,9 +309,7 @@ export default function Landing() {
                         >
                           {i + 1}
                         </span>
-                        {!last && (
-                          <span className="mt-1 w-px grow bg-slate-300" />
-                        )}
+                        {!last && <span className="mt-1 w-px grow bg-slate-300" />}
                       </div>
                       <div className="pb-1">
                         <h3 className="font-bold text-slate-800">{a.judul}</h3>
@@ -242,7 +338,13 @@ export default function Landing() {
         open={detail !== null}
         onClose={() => setDetail(null)}
         title={detail?.nama ?? ""}
-        subtitle={`Kuota ${detail?.kuota ?? 0} peserta · ${detail?.metode ?? ""}`}
+        subtitle={
+          detail
+            ? `${detail.kode} · Kuota ${detail.kuota} peserta${
+                detail.penyelenggara ? ` · ${detail.penyelenggara}` : ""
+              }`
+            : ""
+        }
         size="lg"
         footer={
           <>
@@ -262,33 +364,55 @@ export default function Landing() {
         {detail && (
           <div className="space-y-6">
             <div>
-              <h3 className="mb-2 font-bold text-slate-800">
-                Deskripsi Program
-              </h3>
-              <p className="text-sm text-slate-500">{detail.deskripsi}</p>
+              <h3 className="mb-2 font-bold text-slate-800">Deskripsi Program</h3>
+              <p className="text-sm text-slate-500">
+                {detail.deskripsi || "Belum ada deskripsi untuk program ini."}
+              </p>
             </div>
+
             <div>
-              <h3 className="mb-2 font-bold text-slate-800">
-                Persyaratan Khusus
-              </h3>
-              <ul className="list-inside list-disc space-y-1 text-sm text-slate-500">
-                {detail.persyaratanKhusus.map((x) => (
-                  <li key={x}>{x}</li>
-                ))}
-              </ul>
+              <h3 className="mb-2 font-bold text-slate-800">Masa Pendaftaran</h3>
+              <p className="text-sm text-slate-500">
+                {tanggalPanjang(detail.tgl_buka)} — {tanggalPanjang(detail.tgl_tutup)}
+              </p>
             </div>
+
             <div>
               <h3 className="mb-2 font-bold text-slate-800">
                 Dokumen yang Wajib Diunggah
               </h3>
-              <ul className="list-inside list-disc space-y-1 text-sm text-slate-500">
-                {detail.dokumenWajib.map((x) => (
-                  <li key={x}>{x}</li>
-                ))}
-              </ul>
+              {wajib.length > 0 ? (
+                <ul className="list-inside list-disc space-y-1 text-sm text-slate-500">
+                  {wajib.map((p) => (
+                    <li key={p.kode}>
+                      {p.nama}
+                      {p.deskripsi && (
+                        <span className="text-slate-400"> — {p.deskripsi}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  Daftar dokumen untuk program ini belum ditetapkan. Anda tetap bisa
+                  mendaftar; berkas yang diminta akan muncul pada langkah unggah.
+                </p>
+              )}
             </div>
+
+            {opsional.length > 0 && (
+              <div>
+                <h3 className="mb-2 font-bold text-slate-800">Dokumen Opsional</h3>
+                <ul className="list-inside list-disc space-y-1 text-sm text-slate-500">
+                  {opsional.map((p) => (
+                    <li key={p.kode}>{p.nama}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="rounded-xl bg-brand-50 p-4 text-sm text-brand-800">
-              <b>Batas pendaftaran:</b> {detail.batasPendaftaran}
+              <b>Batas pendaftaran:</b> {tanggalPanjang(detail.tgl_tutup)}
             </div>
           </div>
         )}

@@ -1,11 +1,13 @@
 import { apiMaster } from "../../lib/api";
 import type {
   Beasiswa,
+  BeasiswaPublik,
   BuatBeasiswaPayload,
   DaftarSyaratProgram,
   FilterBeasiswa,
   ItemSyaratPayload,
   MetaHalaman,
+  MetaKatalog,
   UbahBeasiswaPayload,
 } from "./types";
 
@@ -13,6 +15,20 @@ import type {
  * Modul data beasiswa pelatihan — service Master (`bit_be_master`), bukan RBAC.
  * Membaca boleh siapa saja yang login; mutasi khusus ADMIN.
  */
+
+/**
+ * GET /beasiswa/publik — katalog untuk landing page.
+ *
+ * Satu-satunya endpoint Master yang jalan **tanpa token**, jadi aman dipanggil
+ * dari halaman depan. Yang dikembalikan hanya program berstatus AKTIF yang
+ * tenggat pendaftarannya belum lewat, lengkap dengan daftar persyaratannya.
+ */
+export async function katalogPublik() {
+  const { data } = await apiMaster.get<{ data: BeasiswaPublik[]; meta: MetaKatalog }>(
+    "/beasiswa/publik",
+  );
+  return data;
+}
 
 export async function daftarBeasiswa(filter: FilterBeasiswa) {
   // Kolom kosong tidak dikirim supaya tidak dianggap filter oleh backend.

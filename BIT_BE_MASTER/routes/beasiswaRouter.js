@@ -8,9 +8,20 @@ const { isAdmin } = require('../middlewares/authorization.js');
 
 const router = express.Router();
 
-// Semua endpoint butuh token yang sah. Membaca boleh siapa saja yang login —
-// calon peserta perlu melihat katalog program — tapi isinya disaring per role
-// di service: non-admin hanya melihat program berstatus AKTIF.
+/**
+ * Katalog terbuka untuk landing page — SATU-SATUNYA endpoint Master yang
+ * boleh diakses tanpa token, karena halaman depan memang dibuka orang yang
+ * belum punya akun.
+ *
+ * Urutannya penting dua kali: harus di atas `router.use(authentication)`
+ * supaya tidak diminta token, DAN di atas `/:id` supaya kata "publik" tidak
+ * tertelan sebagai id program.
+ */
+router.get('/publik', BeasiswaController.katalogPublik);
+
+// Selain itu, semua endpoint butuh token yang sah. Membaca boleh siapa saja
+// yang login — calon peserta perlu melihat katalog program — tapi isinya
+// disaring per role di service: non-admin hanya melihat program AKTIF.
 router.use(authentication);
 
 router.get('/', BeasiswaController.daftar);

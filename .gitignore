@@ -1,0 +1,33 @@
+# ------------------------------------------------------------------
+# Rahasia. `.env` root berisi password database yang dipakai docker-compose
+# dan TIDAK BOLEH ikut ter-commit. Contohnya ada di `.env.example`.
+# ------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# Kunci dan sertifikat
+*.pem
+*.key
+
+# ------------------------------------------------------------------
+# Dependensi & hasil build; semuanya bisa dibuat ulang dari lockfile.
+# ------------------------------------------------------------------
+node_modules/
+dist/
+build/
+
+# Log
+logs/
+*.log
+npm-debug.log*
+
+# Berkas unggahan peserta — tempatnya di volume Docker, bukan di git.
+BIT_BE_DOKUMEN/storage/
+
+# Editor & sistem operasi
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db

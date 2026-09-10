@@ -2,14 +2,21 @@
 
 const argon2 = require('argon2');
 const { Op } = require('sequelize');
-const { sequelize, user, role, refresh_token, audit_log } = require('../models');
+const { sequelize, user, role, user_role, refresh_token, audit_log } = require('../models');
 const { signAccessToken, ACCESS_TOKEN_TTL } = require('../helpers/jwt.js');
 const {
   buatRefreshToken,
   hashToken,
   tanggalKedaluwarsa
 } = require('../helpers/refreshToken.js');
-const { unauthorized, forbidden, locked } = require('../helpers/errors.js');
+const { unauthorized, forbidden, locked, conflict, badRequest } = require('../helpers/errors.js');
+
+/**
+ * Pendaftaran mandiri HANYA menerbitkan role ini. Ditulis sebagai konstanta,
+ * bukan dibaca dari request — inilah satu-satunya hal yang memisahkan
+ * "calon peserta mendaftar sendiri" dari "siapa pun bisa jadi admin".
+ */
+const ROLE_PENDAFTAR = 'APPLICANT';
 
 const MAX_GAGAL_LOGIN = Number(process.env.MAX_GAGAL_LOGIN || 5);
 const LAMA_KUNCI_MENIT = Number(process.env.LAMA_KUNCI_MENIT || 15);
@@ -78,6 +85,89 @@ class AuthService {
     );
 
     return raw;
+  }
+
+  /**
+   * POST /auth/register — pendaftaran mandiri calon peserta.
+   *
+   * Hanya menerbitkan akun APPLICANT. Akun internal (Admin, Verifikator,
+   * Lembaga Seleksi) tetap **wajib** dibuat Admin lewat `POST /users`; tidak
+   * ada jalan dari endpoint publik ini menuju role internal, karena role dan
+   * `tipe_user` dipaksa konstanta di sini dan tidak pernah dibaca dari body.
+   *
+   * Tidak langsung login: yang dikembalikan cuma profil, bukan token. Alurnya
+   * sesuai dokumen — daftar akun → login.
+   */
+  static async register(data, meta) {
+    // Dicek manual supaya pesannya jelas, bukan error constraint UNIQUE.
+    // `paranoid: false` ikut memeriksa akun yang sudah di-soft delete, karena
+    // kolom email tetap UNIQUE di level database.
+    const sudahAda = await user.findOne({
+      where: { email: data.email },
+      paranoid: false
+    });
+
+    if (sudahAda) {
+      await catatAudit({
+        aksi: 'REGISTER_FAILED',
+        keterangan: `Email sudah dipakai: ${data.email}`,
+        ...meta
+      });
+      throw conflict(
+        sudahAda.deleted_at
+          ? 'Email ini pernah dipakai akun yang sudah dihapus. Gunakan email lain.'
+          : 'Email sudah terdaftar. Silakan login atau pakai email lain.',
+        'EMAIL_TERDAFTAR'
+      );
+    }
+
+    const rolePendaftar = await role.findOne({ where: { kode: ROLE_PENDAFTAR } });
+    if (!rolePendaftar) {
+      // Bukan salah pengguna — seeder role belum dijalankan.
+      console.error(`Role ${ROLE_PENDAFTAR} tidak ada di database; jalankan db:seed.`);
+      throw badRequest(
+        'Pendaftaran belum bisa diproses. Hubungi administrator.',
+        'ROLE_PENDAFTAR_HILANG'
+      );
+    }
+
+    const akun = await sequelize.transaction(async (t) => {
+      const baru = await user.create(
+        {
+          nama: data.nama,
+          email: data.email,
+          password_hash: await argon2.hash(data.password, { type: argon2.argon2id }),
+          no_hp: data.no_hp || null,
+          tipe_user: 'APPLICANT',
+          is_active: true
+          // email_verified_at sengaja dibiarkan null: verifikasi email belum ada.
+        },
+        { transaction: t }
+      );
+
+      await user_role.create(
+        { user_id: baru.id, role_id: rolePendaftar.id, assigned_at: new Date() },
+        { transaction: t }
+      );
+
+      return baru;
+    });
+
+    await catatAudit({
+      user_id: akun.id,
+      aksi: 'REGISTER',
+      keterangan: `Pendaftaran mandiri calon peserta ${data.email}`,
+      ...meta
+    });
+
+    return {
+      uuid: akun.uuid,
+      nama: akun.nama,
+      email: akun.email,
+      no_hp: akun.no_hp,
+      tipe_user: akun.tipe_user,
+      roles: [ROLE_PENDAFTAR]
+    };
   }
 
   /**

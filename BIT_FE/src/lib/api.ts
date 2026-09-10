@@ -6,14 +6,18 @@ import axios, {
 import { ambilToken, picuSesiHabis, simpanToken } from "./tokenStore";
 
 /**
- * Tiap service punya alamatnya sendiri selama `bit_be_gateway` belum ada.
- * Begitu gateway jadi, semua VITE_API_*_URL tinggal diarahkan ke satu alamat
- * gateway — tidak ada perubahan kode di sini.
+ * Semua request lewat `bit_be_gateway` — satu alamat untuk keempat service.
+ * Gateway yang memilah tujuannya dari segmen pertama setelah `/api`
+ * (`/api/auth` → RBAC, `/api/beasiswa` → Master, dan seterusnya), jadi jalur
+ * yang ditulis di seluruh `features/` tidak berubah sama sekali.
+ *
+ * Nilainya sengaja **relatif**, bukan alamat absolut. Vite memanggang
+ * `import.meta.env` ke dalam bundel saat build, jadi alamat absolut akan
+ * mengunci hasil build ke satu host. Dengan path relatif, FE memanggil origin
+ * yang sama dengan yang menyajikannya — sehingga tidak ada preflight CORS
+ * sama sekali dan cookie refresh token tetap first-party.
  */
-const URL_RBAC = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
-const URL_MASTER = import.meta.env.VITE_API_MASTER_URL ?? "http://localhost:3002";
-const URL_TRANSAKSI = import.meta.env.VITE_API_TRANSAKSI_URL ?? "http://localhost:3003";
-const URL_DOKUMEN = import.meta.env.VITE_API_DOKUMEN_URL ?? "http://localhost:3004";
+const URL_API = import.meta.env.VITE_API_URL ?? "/api";
 
 type RequestUlang = InternalAxiosRequestConfig & { _ulangi?: boolean };
 
@@ -42,7 +46,8 @@ const TANPA_AUTO_REFRESH = ["/auth/login", "/auth/refresh", "/auth/logout"];
 function buatKlien(baseURL: string): AxiosInstance {
   const klien = axios.create({
     baseURL,
-    // Wajib supaya cookie refresh token ikut terkirim pada request lintas origin.
+    // Tetap wajib: saat FE dijalankan `npm run dev` di :5173 sementara gateway
+    // di :3000, cookie refresh token hanya ikut terkirim kalau ini menyala.
     withCredentials: true,
     headers: { "Content-Type": "application/json" },
   });
@@ -90,17 +95,26 @@ function buatKlien(baseURL: string): AxiosInstance {
   return klien;
 }
 
+/**
+ * Satu klien untuk semuanya, karena kini hanya ada satu alamat.
+ *
+ * Keempat nama di bawah sengaja dipertahankan sebagai alias supaya tidak ada
+ * satu pun file di `features/` yang perlu diubah — dan supaya tetap terbaca
+ * service mana yang sedang dipanggil.
+ */
+const klien = buatKlien(URL_API);
+
 /** Service RBAC: auth, users, roles, menus. */
-export const api = buatKlien(URL_RBAC);
+export const api = klien;
 
 /** Service Master: beasiswa & data acuan. */
-export const apiMaster = buatKlien(URL_MASTER);
+export const apiMaster = klien;
 
 /** Service Transaksi: permohonan, verifikasi, wawancara, hasil. */
-export const apiTransaksi = buatKlien(URL_TRANSAKSI);
+export const apiTransaksi = klien;
 
 /** Service Dokumen: unggah & akses berkas persyaratan. */
-export const apiDokumen = buatKlien(URL_DOKUMEN);
+export const apiDokumen = klien;
 
 /** Bentuk body sukses dari /auth/login dan /auth/refresh. */
 export type SesiPayload<TUser = unknown> = {

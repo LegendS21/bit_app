@@ -3,11 +3,14 @@
 const express = require('express');
 const AuthController = require('../controllers/authController.js');
 const authentication = require('../middlewares/authentication.js');
-const { loginLimiter, refreshLimiter } = require('../middlewares/rateLimit.js');
+const { loginLimiter, registerLimiter, refreshLimiter } = require('../middlewares/rateLimit.js');
 
 const router = express.Router();
 
 // --- Rute publik (tidak butuh access token) ---
+// Pendaftaran mandiri, khusus calon peserta. Akun internal tidak pernah lewat
+// sini — dibuat Admin lewat POST /users.
+router.post('/register', registerLimiter, AuthController.register);
 router.post('/login', loginLimiter, AuthController.login);
 // /refresh & /logout diautentikasi lewat cookie refresh token, bukan Bearer token,
 // justru karena dipanggil saat access token-nya sudah kedaluwarsa.

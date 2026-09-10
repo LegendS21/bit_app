@@ -1,0 +1,20 @@
+# node_modules milik Windows/host tidak boleh ikut disalin — isinya biner yang
+# dikompilasi untuk OS ini dan akan rusak di dalam Alpine Linux.
+# Image membangun ulang dependensinya sendiri lewat `npm ci`.
+node_modules
+npm-debug.log*
+
+# Rahasia tidak pernah dipanggang ke dalam image. Nilainya disuntikkan
+# docker-compose lewat environment saat container dijalankan.
+.env
+.env.*
+!.env.example
+
+# Berkas unggahan peserta tinggal di persistent volume, bukan di dalam image.
+storage
+
+.git
+.gitignore
+.dockerignore
+Dockerfile
+README.md
